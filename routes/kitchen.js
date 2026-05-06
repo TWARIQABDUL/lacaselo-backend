@@ -13,18 +13,7 @@ router.get("/", (req, res) => {
     return res.status(400).json({ message: "Date is required" });
   }
 
-  const sql = `
-    SELECT * FROM kitchen_products
-    WHERE date = ?
-    ORDER BY id DESC
-  `;
-
-  db.query(sql, [date], (err, rows) => {
-    if (err) {
-      console.error("Fetch error:", err);
-      return res.status(500).json(err);
-    }
-
+  const processRowsAndSend = (rows) => {
     const foods = rows.map((item) => {
       const cost = Number(item.initial_price) || 0;
       const price = Number(item.price) || 0;
@@ -61,6 +50,94 @@ router.get("/", (req, res) => {
       totalStockValue,
       lowStockCount,
     });
+  };
+
+  const sql = `
+    SELECT * FROM kitchen_products
+    WHERE date = ?
+    ORDER BY id DESC
+  `;
+
+  db.query(sql, [date], (err, rows) => {
+    if (err) {
+      console.error("Fetch error:", err);
+      return res.status(500).json(err);
+    }
+
+    if (rows.length === 0) {
+      // Check if there are any past records
+      const pastSql = `
+        SELECT DISTINCT date FROM kitchen_products
+        WHERE date < ?
+        ORDER BY date DESC LIMIT 1
+      `;
+      db.query(pastSql, [date], (err2, pastDateRows) => {
+        if (err2) {
+          console.error("Past date fetch error:", err2);
+          return processRowsAndSend([]);
+        }
+
+        if (pastDateRows.length > 0) {
+          const pastDate = pastDateRows[0].date;
+          const fetchPastSql = `SELECT * FROM kitchen_products WHERE date = ? ORDER BY id DESC`;
+          
+          db.query(fetchPastSql, [pastDate], (err3, pastRows) => {
+            if (err3) {
+              console.error("Past rows fetch error:", err3);
+              return processRowsAndSend([]);
+            }
+
+            if (pastRows.length > 0) {
+              // Prepare values for bulk insert
+              const insertValues = pastRows.map(item => {
+                const opening = Number(item.opening_stock) || 0;
+                const entree = Number(item.entree) || 0;
+                const sold = Number(item.sold) || 0;
+                const closing = opening + entree - sold;
+                
+                return [
+                  item.name,
+                  item.initial_price,
+                  item.price,
+                  closing, // new opening_stock
+                  0,       // new entree
+                  0,       // new sold
+                  date
+                ];
+              });
+              
+              const insertSql = `
+                INSERT INTO kitchen_products
+                (name, initial_price, price, opening_stock, entree, sold, date)
+                VALUES ?
+              `;
+              
+              db.query(insertSql, [insertValues], (err4) => {
+                if (err4) {
+                  console.error("Insert past rows error:", err4);
+                  return processRowsAndSend([]);
+                }
+                
+                // Fetch again to return new rows
+                db.query(sql, [date], (err5, newRows) => {
+                  if (err5) {
+                    console.error("Fetch new rows error:", err5);
+                    return processRowsAndSend([]);
+                  }
+                  return processRowsAndSend(newRows);
+                });
+              });
+            } else {
+              return processRowsAndSend([]);
+            }
+          });
+        } else {
+          return processRowsAndSend([]);
+        }
+      });
+    } else {
+      return processRowsAndSend(rows);
+    }
   });
 });
 
