@@ -227,6 +227,12 @@ router.put("/sold/:id", (req, res) => {
     });
   }
 
+  const sql = `
+    UPDATE kitchen_products
+    SET sold = ?
+    WHERE id = ? AND date = ?
+  `;
+
   db.query(sql, [Number(sold), id, date], (err) => {
     if (err) {
       console.error("Sold update error:", err);
