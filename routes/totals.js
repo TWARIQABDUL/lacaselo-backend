@@ -10,48 +10,42 @@ router.get("/", (req, res) => {
   try {
     // Bar/Drinks total - SUM of (sold * price)
     db.query(
-      "SELECT SUM(sold * price) AS total FROM bar_products WHERE date = ?",
-      [today],
+      "SELECT SUM(sold * price) AS total FROM bar_products",
       async (err1, drinksResult) => {
         if (err1) return res.status(500).json(err1);
         const drinks = drinksResult[0]?.total || 0;
 
         // Kitchen total - SUM of (sold * price)
         db.query(
-          "SELECT SUM(sold * price) AS total FROM kitchen_products WHERE date = ?",
-          [today],
+          "SELECT SUM(sold * price) AS total FROM kitchen_products",
           async (err2, kitchenResult) => {
             if (err2) return res.status(500).json(err2);
             const kitchen = kitchenResult[0]?.total || 0;
 
             // Billiard total - SUM of (token + cash + cash_momo)
             db.query(
-              "SELECT SUM(token + cash + cash_momo) AS total FROM billiard WHERE date = ?",
-              [today],
+              "SELECT SUM(token + cash + cash_momo) AS total FROM billiard",
               async (err3, billiardResult) => {
                 if (err3) return res.status(500).json(err3);
                 const billiard = billiardResult[0]?.total || 0;
 
                 // Gym total - SUM of (cash + cash_momo)
                 db.query(
-                  "SELECT SUM(cash + cash_momo) AS total FROM gym WHERE date = ?",
-                  [today],
+                  "SELECT SUM(cash + cash_momo) AS total FROM gym",
                   async (err4, gymResult) => {
                     if (err4) return res.status(500).json(err4);
                     const gym = gymResult[0]?.total || 0;
 
                     // Guesthouse total - SUM of (vip * vip_price + normal * normal_price)
                     db.query(
-                      "SELECT SUM((vip * vip_price) + (normal * normal_price)) AS total FROM guesthouse WHERE date = ?",
-                      [today],
+                      "SELECT SUM((vip * vip_price) + (normal * normal_price)) AS total FROM guesthouse",
                       async (err5, guesthouseResult) => {
                         if (err5) return res.status(500).json(err5);
                         const guesthouse = guesthouseResult[0]?.total || 0;
 
                         // Expenses total - SUM of amount
                         db.query(
-                          "SELECT SUM(amount) AS total FROM expenses WHERE date = ?",
-                          [today],
+                          "SELECT SUM(amount) AS total FROM expenses",
                           (err6, expensesResult) => {
                             if (err6) return res.status(500).json(err6);
                             const expenses = expensesResult[0]?.total || 0;
