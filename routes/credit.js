@@ -74,7 +74,7 @@ router.post("/:id/loans", verifyToken, allowRoles("BAR_MAN", "CHIEF_KITCHEN", "S
   if (!amount || isNaN(Number(amount))) return res.status(400).json({ error: "Valid amount is required" });
 
   const numAmount = Number(amount);
-  const givenBy = req.user.username; // Track who is giving the loan
+  const givenBy = req.user?.username || req.body.given_by || "unknown";
   const sql = "INSERT INTO employee_loans (employee_id, amount, reason, loan_date, total_paid, remaining, given_by) VALUES (?, ?, ?, ?, ?, ?, ?)";
   
   db.query(sql, [id, numAmount, reason || "", loan_date, 0, numAmount, givenBy], (err, result) => {
