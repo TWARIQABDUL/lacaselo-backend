@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db"); // your MySQL connection
+const verifyToken = require("../middleware/AuthMiddlewares");
+const allowRoles = require("../middleware/roleMiddleware");
 
 // ===== GET ALL EMPLOYEES W/ LOANS =====
 router.get("/", (req, res) => {
@@ -64,17 +66,18 @@ router.get("/:id/loans", (req, res) => {
   });
 });
 
-// ===== ADD EMPLOYEE LOAN =====
-router.post("/:id/loans", (req, res) => {
+// ===== ADD EMPLOYEE LOAN (Restricted Roles) =====
+router.post("/:id/loans", verifyToken, allowRoles("BAR_MAN", "CHIEF_KITCHEN", "SUPER_ADMIN"), (req, res) => {
   const { id } = req.params;
   const { amount, reason, loan_date } = req.body;
 
   if (!amount || isNaN(Number(amount))) return res.status(400).json({ error: "Valid amount is required" });
 
   const numAmount = Number(amount);
-  const sql = "INSERT INTO employee_loans (employee_id, amount, reason, loan_date, total_paid, remaining) VALUES (?, ?, ?, ?, ?, ?)";
+  const givenBy = req.user.username; // Track who is giving the loan
+  const sql = "INSERT INTO employee_loans (employee_id, amount, reason, loan_date, total_paid, remaining, given_by) VALUES (?, ?, ?, ?, ?, ?, ?)";
   
-  db.query(sql, [id, numAmount, reason || "", loan_date, 0, numAmount], (err, result) => {
+  db.query(sql, [id, numAmount, reason || "", loan_date, 0, numAmount, givenBy], (err, result) => {
     if (err) {
       console.error("LOAN INSERT ERROR:", err);
       return res.status(500).json({ error: "Failed to add loan", details: err.message });
