@@ -2,29 +2,43 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 
+// Helper to get token price
+function getTokenPrice(callback) {
+  db.query("SELECT setting_value FROM settings WHERE setting_key = 'token_price'", (err, rows) => {
+    let tokenPrice = 500;
+    if (!err && rows && rows.length > 0) {
+      tokenPrice = Number(rows[0].setting_value) || 500;
+    }
+    callback(tokenPrice);
+  });
+}
+
 // ================= GET ALL RECORDS =================
 router.get("/", (req, res) => {
   const { date } = req.query;
-  let sql = "SELECT * FROM billiard";
-  const params = [];
 
-  if (date) {
-    sql += " WHERE date = ?";
-    params.push(date);
-  }
+  getTokenPrice((tokenPrice) => {
+    let sql = "SELECT * FROM billiard";
+    const params = [];
 
-  sql += " ORDER BY id DESC";
+    if (date) {
+      sql += " WHERE date = ?";
+      params.push(date);
+    }
 
-  db.query(sql, params, (err, rows) => {
-    if (err) return res.status(500).json(err);
+    sql += " ORDER BY id DESC";
 
-    // Calculate total dynamically
-    const dataWithTotal = rows.map((r) => ({
-      ...r,
-      total: Number(r.token || 0) + Number(r.cash || 0) + Number(r.cash_momo || 0)
-    }));
+    db.query(sql, params, (err, rows) => {
+      if (err) return res.status(500).json(err);
 
-    res.json(dataWithTotal);
+      // Calculate total dynamically using token price
+      const dataWithTotal = rows.map((r) => ({
+        ...r,
+        total: (Number(r.token || 0) * tokenPrice) + Number(r.cash || 0) + Number(r.cash_momo || 0)
+      }));
+
+      res.json(dataWithTotal);
+    });
   });
 });
 
@@ -34,23 +48,25 @@ router.post("/", (req, res) => {
 
   if (!date) return res.status(400).json({ message: "Date is required" });
 
-  const sql = "INSERT INTO billiard (date, token, cash, cash_momo) VALUES (?, ?, ?, ?)";
+  getTokenPrice((tokenPrice) => {
+    const sql = "INSERT INTO billiard (date, token, cash, cash_momo) VALUES (?, ?, ?, ?)";
 
-  db.query(
-    sql,
-    [date, Number(token || 0), Number(cash || 0), Number(cash_momo || 0)],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
+    db.query(
+      sql,
+      [date, Number(token || 0), Number(cash || 0), Number(cash_momo || 0)],
+      (err, result) => {
+        if (err) return res.status(500).json(err);
 
-      db.query("SELECT * FROM billiard WHERE id = ?", [result.insertId], (err2, rows) => {
-        if (err2) return res.status(500).json(err2);
+        db.query("SELECT * FROM billiard WHERE id = ?", [result.insertId], (err2, rows) => {
+          if (err2) return res.status(500).json(err2);
 
-        const row = rows[0];
-        row.total = Number(row.token || 0) + Number(row.cash || 0) + Number(row.cash_momo || 0);
-        res.json(row);
-      });
-    }
-  );
+          const row = rows[0];
+          row.total = (Number(row.token || 0) * tokenPrice) + Number(row.cash || 0) + Number(row.cash_momo || 0);
+          res.json(row);
+        });
+      }
+    );
+  });
 });
 
 // ================= UPDATE RECORD =================
@@ -58,17 +74,19 @@ router.put("/:id", (req, res) => {
   const { token, cash, cash_momo } = req.body;
   const { id } = req.params;
 
-  const sql = "UPDATE billiard SET token=?, cash=?, cash_momo=? WHERE id=?";
+  getTokenPrice((tokenPrice) => {
+    const sql = "UPDATE billiard SET token=?, cash=?, cash_momo=? WHERE id=?";
 
-  db.query(sql, [Number(token || 0), Number(cash || 0), Number(cash_momo || 0), id], (err) => {
-    if (err) return res.status(500).json(err);
+    db.query(sql, [Number(token || 0), Number(cash || 0), Number(cash_momo || 0), id], (err) => {
+      if (err) return res.status(500).json(err);
 
-    db.query("SELECT * FROM billiard WHERE id = ?", [id], (err2, rows) => {
-      if (err2) return res.status(500).json(err2);
+      db.query("SELECT * FROM billiard WHERE id = ?", [id], (err2, rows) => {
+        if (err2) return res.status(500).json(err2);
 
-      const row = rows[0];
-      row.total = Number(row.token || 0) + Number(row.cash || 0) + Number(row.cash_momo || 0);
-      res.json(row);
+        const row = rows[0];
+        row.total = (Number(row.token || 0) * tokenPrice) + Number(row.cash || 0) + Number(row.cash_momo || 0);
+        res.json(row);
+      });
     });
   });
 });
@@ -98,48 +116,50 @@ router.get("/stats/timePeriods", (req, res) => {
   const yearStart = new Date(today.getFullYear(), 0, 1);
   const yearStartStr = yearStart.toISOString().split("T")[0];
 
-  db.query(
-    "SELECT SUM(token + cash + cash_momo) AS total FROM billiard WHERE date = ?",
-    [todayStr],
-    (err1, dayResult) => {
-      if (err1) return res.status(500).json(err1);
-      const dayTotal = dayResult[0]?.total || 0;
+  getTokenPrice((tokenPrice) => {
+    db.query(
+      "SELECT SUM((token * ?) + cash + cash_momo) AS total FROM billiard WHERE date = ?",
+      [tokenPrice, todayStr],
+      (err1, dayResult) => {
+        if (err1) return res.status(500).json(err1);
+        const dayTotal = dayResult[0]?.total || 0;
 
-      db.query(
-        "SELECT SUM(token + cash + cash_momo) AS total FROM billiard WHERE date >= ? AND date <= ?",
-        [weekStartStr, todayStr],
-        (err2, weekResult) => {
-          if (err2) return res.status(500).json(err2);
-          const weekTotal = weekResult[0]?.total || 0;
+        db.query(
+          "SELECT SUM((token * ?) + cash + cash_momo) AS total FROM billiard WHERE date >= ? AND date <= ?",
+          [tokenPrice, weekStartStr, todayStr],
+          (err2, weekResult) => {
+            if (err2) return res.status(500).json(err2);
+            const weekTotal = weekResult[0]?.total || 0;
 
-          db.query(
-            "SELECT SUM(token + cash + cash_momo) AS total FROM billiard WHERE date >= ? AND date <= ?",
-            [monthStartStr, todayStr],
-            (err3, monthResult) => {
-              if (err3) return res.status(500).json(err3);
-              const monthTotal = monthResult[0]?.total || 0;
+            db.query(
+              "SELECT SUM((token * ?) + cash + cash_momo) AS total FROM billiard WHERE date >= ? AND date <= ?",
+              [tokenPrice, monthStartStr, todayStr],
+              (err3, monthResult) => {
+                if (err3) return res.status(500).json(err3);
+                const monthTotal = monthResult[0]?.total || 0;
 
-              db.query(
-                "SELECT SUM(token + cash + cash_momo) AS total FROM billiard WHERE date >= ? AND date <= ?",
-                [yearStartStr, todayStr],
-                (err4, yearResult) => {
-                  if (err4) return res.status(500).json(err4);
-                  const yearTotal = yearResult[0]?.total || 0;
+                db.query(
+                  "SELECT SUM((token * ?) + cash + cash_momo) AS total FROM billiard WHERE date >= ? AND date <= ?",
+                  [tokenPrice, yearStartStr, todayStr],
+                  (err4, yearResult) => {
+                    if (err4) return res.status(500).json(err4);
+                    const yearTotal = yearResult[0]?.total || 0;
 
-                  res.json({
-                    day: Number(dayTotal) || 0,
-                    week: Number(weekTotal) || 0,
-                    month: Number(monthTotal) || 0,
-                    year: Number(yearTotal) || 0,
-                  });
-                }
-              );
-            }
-          );
-        }
-      );
-    }
-  );
+                    res.json({
+                      day: Number(dayTotal) || 0,
+                      week: Number(weekTotal) || 0,
+                      month: Number(monthTotal) || 0,
+                      year: Number(yearTotal) || 0,
+                    });
+                  }
+                );
+              }
+            );
+          }
+        );
+      }
+    );
+  });
 });
 
 module.exports = router;

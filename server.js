@@ -13,6 +13,7 @@ const gymRoutes = require("./routes/gym");
 const authRoutes = require("./routes/auth");
 const logRoutes = require("./routes/log");
 const usersRoutes = require("./routes/users");
+const settingsRoutes = require("./routes/settings");
 
 const app = express();
 
@@ -49,6 +50,7 @@ app.use("/api/total-money", totalsRoutes);
 app.use("/api", authRoutes);
 app.use("/api", logRoutes);
 app.use("/api/users", usersRoutes);
+app.use("/api/settings", settingsRoutes);
 
 // ================= DEFAULT ROUTE =================
 app.get("/", (req, res) => {
