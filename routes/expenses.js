@@ -4,9 +4,18 @@ const db = require("../db");
 
 // ================= GET ALL EXPENSES =================
 router.get("/", (req, res) => {
-  const sql = "SELECT * FROM expenses ORDER BY date DESC, id DESC";
+  const { date } = req.query;
+  let sql = "SELECT * FROM expenses";
+  const params = [];
 
-  db.query(sql, (err, rows) => {
+  if (date) {
+    sql += " WHERE date = ?";
+    params.push(date);
+  }
+
+  sql += " ORDER BY date DESC, id DESC";
+
+  db.query(sql, params, (err, rows) => {
     if (err) return res.status(500).json(err);
 
     // Calculate totals for dashboard cards
