@@ -22,6 +22,7 @@ const app = express();
 const FRONTEND_URLS = [
   "https://lacaselo-frontend-1.onrender.com",
   "https://lacaselo-frontend-1-0crh.onrender.com",
+  "https://lacaselo-frontend.vercel.app",
   "http://localhost:3000",
   "http://localhost:5000"
 ];
