@@ -79,7 +79,7 @@ router.get("/", (req, res) => {
 
         if (pastDateRows.length > 0) {
           const pastDate = pastDateRows[0].date;
-          const fetchPastSql = `SELECT * FROM kitchen_products WHERE date = ? ORDER BY id DESC`;
+          const fetchPastSql = `SELECT * FROM kitchen_products WHERE date = ? ORDER BY id ASC`;
           
           db.query(fetchPastSql, [pastDate], (err3, pastRows) => {
             if (err3) {
