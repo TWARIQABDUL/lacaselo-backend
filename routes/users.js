@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require("../db");
 const verifyToken = require("../middleware/AuthMiddlewares");
 const allowRoles = require("../middleware/roleMiddleware");
+const auditLog = require("../utils/auditLogger");
 
 // ==================================================
 // GET ALL USERS (Admin Only)
@@ -34,6 +35,8 @@ router.post("/", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req, re
       "INSERT INTO users (username, password, role, branch_id, status) VALUES (?, ?, ?, ?, 'active')",
       [username, password, role, branch_id || null]
     );
+
+    await auditLog(req, `Created new user: ${username} with role: ${role}`);
 
     res.json({
       message: "User created successfully",
@@ -69,11 +72,29 @@ router.put("/:id", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req, 
     if (updates.length === 0) {
       return res.status(400).json({ message: "Nothing to update" });
     }
+    
+    // Fetch old data
+    const [oldRows] = await db.promise().query("SELECT * FROM users WHERE userId = ?", [id]);
+    const old = oldRows.length > 0 ? oldRows[0] : null;
 
     values.push(id);
     const sql = `UPDATE users SET ${updates.join(", ")} WHERE userId = ?`;
 
     await db.promise().query(sql, values);
+    
+    if (old) {
+      let changes = [];
+      if (username && old.username !== username) changes.push(`Username: ${old.username} -> ${username}`);
+      if (role && old.role !== role) changes.push(`Role: ${old.role} -> ${role}`);
+      if (status && old.status !== status) changes.push(`Status: ${old.status} -> ${status}`);
+      if (branch_id !== undefined && old.branch_id != branch_id) changes.push(`Branch: ${old.branch_id} -> ${branch_id}`);
+      if (password) changes.push(`Password was changed`);
+      
+      if (changes.length > 0) {
+        await auditLog(req, `Edited User ${old.username}: ${changes.join(', ')}`);
+      }
+    }
+    
     res.json({ message: "User updated successfully" });
   } catch (error) {
     console.error("Update User Error:", error);
@@ -88,7 +109,13 @@ router.delete("/:id", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (re
   const { id } = req.params;
 
   try {
+    const [oldRows] = await db.promise().query("SELECT username FROM users WHERE userId = ?", [id]);
+    const username = oldRows.length > 0 ? oldRows[0].username : "Unknown";
+
     await db.promise().query("DELETE FROM users WHERE userId = ?", [id]);
+    
+    await auditLog(req, `Deleted User: ${username}`);
+    
     res.json({ message: "User deleted successfully" });
   } catch (error) {
     console.error("Delete User Error:", error);

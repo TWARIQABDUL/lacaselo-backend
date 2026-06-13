@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 // ================= GET ALL EXPENSES =================
 router.get("/", (req, res) => {
@@ -67,6 +68,8 @@ router.post("/", (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
 
+      auditLog(req, `Added new Expense: ${expense_name} (Amount: ${amount || 0})`);
+
       // Return inserted row
       db.query(
         "SELECT * FROM expenses WHERE id = ?",
@@ -91,31 +94,51 @@ router.put("/:id", (req, res) => {
     WHERE id=?
   `;
 
-  db.query(
-    sql,
-    [
-      expense_name,
-      Number(amount || 0),
-      Number(cost || 0),
-      date,
-      category,
-      Number(is_profit),
-      id
-    ],
-    (err) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Expense updated successfully" });
-    }
-  );
+  db.query("SELECT * FROM expenses WHERE id=?", [id], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+
+    db.query(
+      sql,
+      [
+        expense_name,
+        Number(amount || 0),
+        Number(cost || 0),
+        date,
+        category,
+        Number(is_profit),
+        id
+      ],
+      (err) => {
+        if (err) return res.status(500).json(err);
+        
+        if (old) {
+          let changes = [];
+          if (old.expense_name !== expense_name) changes.push(`Name: ${old.expense_name} -> ${expense_name}`);
+          if (old.amount != amount) changes.push(`Amount: ${old.amount} -> ${amount}`);
+          if (old.cost != cost) changes.push(`Cost: ${old.cost} -> ${cost}`);
+          if (old.category !== category) changes.push(`Category: ${old.category} -> ${category}`);
+          if (changes.length > 0) auditLog(req, `Edited Expense ${old.expense_name}: ${changes.join(', ')}`);
+        }
+
+        res.json({ message: "Expense updated successfully" });
+      }
+    );
+  });
 });
 
 // ================= DELETE EXPENSE =================
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
 
-  db.query("DELETE FROM expenses WHERE id=?", [id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Expense deleted successfully" });
+  db.query("SELECT expense_name FROM expenses WHERE id=?", [id], (selErr, selRows) => {
+    const name = selRows && selRows.length > 0 ? selRows[0].expense_name : "Unknown";
+
+    db.query("DELETE FROM expenses WHERE id=?", [id], (err) => {
+      if (err) return res.status(500).json(err);
+      
+      auditLog(req, `Deleted Expense: ${name}`);
+      res.json({ message: "Expense deleted successfully" });
+    });
   });
 });
 

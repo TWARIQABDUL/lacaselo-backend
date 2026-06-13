@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 // ================= GET BY DATE =================
 router.get("/", (req, res) => {
@@ -51,6 +52,8 @@ router.post("/", (req, res) => {
         return res.status(500).json(err);
       }
 
+      auditLog(req, `Added new Guesthouse record for date: ${date}`);
+
       res.json({
         message: "Guesthouse record added",
         id: result.insertId,
@@ -66,13 +69,29 @@ router.put("/:id", (req, res) => {
 
   const sql = "UPDATE guesthouse SET ? WHERE id = ?";
 
-  db.query(sql, [fields, id], (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json(err);
-    }
+  db.query("SELECT * FROM guesthouse WHERE id = ?", [id], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
 
-    res.json({ message: "Updated successfully" });
+    db.query(sql, [fields, id], (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json(err);
+      }
+      
+      if (old) {
+        let changes = [];
+        if (fields.vip !== undefined && old.vip != fields.vip) changes.push(`VIP: ${old.vip} -> ${fields.vip}`);
+        if (fields.normal !== undefined && old.normal != fields.normal) changes.push(`Normal: ${old.normal} -> ${fields.normal}`);
+        if (fields.vip_price !== undefined && old.vip_price != fields.vip_price) changes.push(`VIP Price: ${old.vip_price} -> ${fields.vip_price}`);
+        if (fields.normal_price !== undefined && old.normal_price != fields.normal_price) changes.push(`Normal Price: ${old.normal_price} -> ${fields.normal_price}`);
+        
+        if (changes.length > 0) {
+          auditLog(req, `Edited Guesthouse record for ${old.date}: ${changes.join(', ')}`);
+        }
+      }
+
+      res.json({ message: "Updated successfully" });
+    });
   });
 });
 
@@ -82,13 +101,19 @@ router.delete("/:id", (req, res) => {
 
   const sql = "DELETE FROM guesthouse WHERE id = ?";
 
-  db.query(sql, [id], (err) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json(err);
-    }
+  db.query("SELECT date FROM guesthouse WHERE id = ?", [id], (selErr, selRows) => {
+    const date = selRows && selRows.length > 0 ? selRows[0].date : "Unknown";
 
-    res.json({ message: "Deleted successfully" });
+    db.query(sql, [id], (err) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json(err);
+      }
+      
+      auditLog(req, `Deleted Guesthouse record for date: ${date}`);
+
+      res.json({ message: "Deleted successfully" });
+    });
   });
 });
 

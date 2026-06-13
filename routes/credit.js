@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require("../db"); // your MySQL connection
 const verifyToken = require("../middleware/AuthMiddlewares");
 const allowRoles = require("../middleware/roleMiddleware");
+const auditLog = require("../utils/auditLogger");
 
 // ===== GET ALL EMPLOYEES W/ LOANS =====
 router.get("/", (req, res) => {
@@ -42,6 +43,8 @@ router.post("/", (req, res) => {
     // Return the newly inserted employee
     db.query("SELECT * FROM credits WHERE id=?", [result.insertId], (err2, rows) => {
       if (err2) return res.status(500).json({ error: "Failed to fetch new employee" });
+      
+      auditLog(req, `Added Employee for credit: ${name} (Base Payment: ${payment})`);
       res.json(rows[0]);
     });
   });
@@ -50,9 +53,16 @@ router.post("/", (req, res) => {
 // ===== DELETE EXISTING EMPLOYEE =====
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
-  db.query("DELETE FROM credits WHERE id=?", [id], (err) => {
-    if (err) return res.status(500).json({ error: "Failed to delete employee" });
-    res.json({ message: "Employee deleted successfully" });
+  
+  db.query("SELECT name FROM credits WHERE id=?", [id], (selErr, selRows) => {
+    const name = selRows && selRows.length > 0 ? selRows[0].name : "Unknown";
+
+    db.query("DELETE FROM credits WHERE id=?", [id], (err) => {
+      if (err) return res.status(500).json({ error: "Failed to delete employee" });
+      
+      auditLog(req, `Deleted Employee from credit list: ${name}`);
+      res.json({ message: "Employee deleted successfully" });
+    });
   });
 });
 
@@ -85,17 +95,34 @@ router.post("/:id/loans", verifyToken, allowRoles("BAR_MAN", "CHIEF_KITCHEN", "S
 
     db.query("SELECT * FROM employee_loans WHERE id=?", [result.insertId], (err2, rows) => {
       if (err2) return res.status(500).json({ error: "Failed to fetch new loan" });
-      res.json(rows[0]);
+      
+      // Also get employee name for the log
+      db.query("SELECT name FROM credits WHERE id=?", [id], (err3, empRows) => {
+        const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
+        auditLog(req, `Added Loan of ${numAmount} for Employee: ${empName}`);
+        res.json(rows[0]);
+      });
     });
   });
 });
 
 // ===== DELETE EMPLOYEE LOAN =====
 router.delete("/:id/loans/:loanId", (req, res) => {
-  const { loanId } = req.params;
-  db.query("DELETE FROM employee_loans WHERE id=?", [loanId], (err) => {
-    if (err) return res.status(500).json({ error: "Failed to delete loan" });
-    res.json({ message: "Loan deleted successfully" });
+  const { id, loanId } = req.params;
+  
+  db.query("SELECT amount FROM employee_loans WHERE id=?", [loanId], (selErr, selRows) => {
+    const amount = selRows && selRows.length > 0 ? selRows[0].amount : 0;
+    
+    db.query("SELECT name FROM credits WHERE id=?", [id], (err3, empRows) => {
+      const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
+      
+      db.query("DELETE FROM employee_loans WHERE id=?", [loanId], (err) => {
+        if (err) return res.status(500).json({ error: "Failed to delete loan" });
+        
+        auditLog(req, `Deleted Loan of ${amount} for Employee: ${empName}`);
+        res.json({ message: "Loan deleted successfully" });
+      });
+    });
   });
 });
 
@@ -133,7 +160,12 @@ router.put("/:id/loans/:loanId/pay", (req, res) => {
         // Return updated loan
         db.query("SELECT * FROM employee_loans WHERE id=?", [loanId], (err3, updatedRows) => {
           if (err3) return res.status(500).json({ error: "Failed to fetch updated loan" });
-          res.json(updatedRows[0]);
+          
+          db.query("SELECT name FROM credits WHERE id=?", [id], (err4, empRows) => {
+            const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
+            auditLog(req, `Paid ${amount} towards Loan for Employee: ${empName}. Remaining: ${newRemaining}`);
+            res.json(updatedRows[0]);
+          });
         });
       }
     );

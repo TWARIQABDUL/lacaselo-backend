@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 // Initialize table
 db.query(`CREATE TABLE IF NOT EXISTS settings (
@@ -38,14 +39,23 @@ router.put("/", (req, res) => {
   const { setting_key, setting_value } = req.body;
   if (!setting_key || !setting_value) return res.status(400).json({ message: "Key and value required" });
   
-  db.query(
-    "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?",
-    [setting_key, setting_value, setting_value],
-    (err, result) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Setting updated", setting_key, setting_value });
-    }
-  );
+  db.query("SELECT setting_value FROM settings WHERE setting_key = ?", [setting_key], (selErr, selRows) => {
+    const oldVal = selRows && selRows.length > 0 ? selRows[0].setting_value : null;
+
+    db.query(
+      "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?",
+      [setting_key, setting_value, setting_value],
+      (err, result) => {
+        if (err) return res.status(500).json(err);
+        
+        if (oldVal !== setting_value) {
+          auditLog(req, `Updated Setting ${setting_key}: ${oldVal || 'None'} -> ${setting_value}`);
+        }
+        
+        res.json({ message: "Setting updated", setting_key, setting_value });
+      }
+    );
+  });
 });
 
 module.exports = router;

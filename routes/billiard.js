@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 // Helper to get token price
 function getTokenPrice(callback) {
@@ -56,6 +57,8 @@ router.post("/", (req, res) => {
       [date, Number(token || 0), Number(cash || 0), Number(cash_momo || 0)],
       (err, result) => {
         if (err) return res.status(500).json(err);
+        
+        auditLog(req, `Added new Billiard record for date: ${date}`);
 
         db.query("SELECT * FROM billiard WHERE id = ?", [result.insertId], (err2, rows) => {
           if (err2) return res.status(500).json(err2);
@@ -77,15 +80,30 @@ router.put("/:id", (req, res) => {
   getTokenPrice((tokenPrice) => {
     const sql = "UPDATE billiard SET token=?, cash=?, cash_momo=? WHERE id=?";
 
-    db.query(sql, [Number(token || 0), Number(cash || 0), Number(cash_momo || 0), id], (err) => {
-      if (err) return res.status(500).json(err);
+    db.query("SELECT * FROM billiard WHERE id=?", [id], (selErr, selRows) => {
+      const old = selRows && selRows.length > 0 ? selRows[0] : null;
 
-      db.query("SELECT * FROM billiard WHERE id = ?", [id], (err2, rows) => {
-        if (err2) return res.status(500).json(err2);
+      db.query(sql, [Number(token || 0), Number(cash || 0), Number(cash_momo || 0), id], (err) => {
+        if (err) return res.status(500).json(err);
+        
+        if (old) {
+          let changes = [];
+          if (old.token != token) changes.push(`Token: ${old.token} -> ${token}`);
+          if (old.cash != cash) changes.push(`Cash: ${old.cash} -> ${cash}`);
+          if (old.cash_momo != cash_momo) changes.push(`MoMo: ${old.cash_momo} -> ${cash_momo}`);
+          
+          if (changes.length > 0) {
+            auditLog(req, `Edited Billiard record for ${old.date}: ${changes.join(', ')}`);
+          }
+        }
 
-        const row = rows[0];
-        row.total = (Number(row.token || 0) * tokenPrice) + Number(row.cash || 0) + Number(row.cash_momo || 0);
-        res.json(row);
+        db.query("SELECT * FROM billiard WHERE id = ?", [id], (err2, rows) => {
+          if (err2) return res.status(500).json(err2);
+
+          const row = rows[0];
+          row.total = (Number(row.token || 0) * tokenPrice) + Number(row.cash || 0) + Number(row.cash_momo || 0);
+          res.json(row);
+        });
       });
     });
   });
@@ -95,9 +113,15 @@ router.put("/:id", (req, res) => {
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
 
-  db.query("DELETE FROM billiard WHERE id=?", [id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Billiard record deleted successfully" });
+  db.query("SELECT date FROM billiard WHERE id=?", [id], (selErr, selRows) => {
+    const date = selRows && selRows.length > 0 ? selRows[0].date : "Unknown";
+
+    db.query("DELETE FROM billiard WHERE id=?", [id], (err) => {
+      if (err) return res.status(500).json(err);
+      
+      auditLog(req, `Deleted Billiard record for date: ${date}`);
+      res.json({ message: "Billiard record deleted successfully" });
+    });
   });
 });
 

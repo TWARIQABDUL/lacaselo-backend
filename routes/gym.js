@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 // ================= GET ALL GYM RECORDS (FILTER BY DATE) =================
 router.get("/", (req, res) => {
@@ -40,6 +41,8 @@ router.post("/", (req, res) => {
   `;
   db.query(sql, [date, daily_people, monthly_people, total_people, cash, cash_momo], (err, result) => {
     if (err) return res.status(500).json(err);
+    
+    auditLog(req, `Added new Gym record for date: ${date}`);
     res.json({ message: "Gym record added", id: result.insertId });
   });
 });
@@ -60,9 +63,26 @@ router.put("/:id", (req, res) => {
     SET daily_people=?, monthly_people=?, total_people=?, cash=?, cash_momo=?
     WHERE id=?
   `;
-  db.query(sql, [daily_people, monthly_people, total_people, cash, cash_momo, id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Gym record updated successfully" });
+  
+  db.query("SELECT * FROM gym WHERE id=?", [id], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+
+    db.query(sql, [daily_people, monthly_people, total_people, cash, cash_momo, id], (err) => {
+      if (err) return res.status(500).json(err);
+      
+      if (old) {
+        let changes = [];
+        if (old.daily_people != daily_people) changes.push(`Daily People: ${old.daily_people} -> ${daily_people}`);
+        if (old.monthly_people != monthly_people) changes.push(`Monthly People: ${old.monthly_people} -> ${monthly_people}`);
+        if (old.cash != cash) changes.push(`Cash: ${old.cash} -> ${cash}`);
+        if (old.cash_momo != cash_momo) changes.push(`MoMo: ${old.cash_momo} -> ${cash_momo}`);
+        
+        if (changes.length > 0) {
+          auditLog(req, `Edited Gym record for ${old.date}: ${changes.join(', ')}`);
+        }
+      }
+      res.json({ message: "Gym record updated successfully" });
+    });
   });
 });
 
@@ -73,20 +93,18 @@ const logActivity = require("../utils/activityLogger");
 // ================= DELETE GYM RECORD =================
 router.delete("/:id", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), (req, res) => {
   const { id } = req.params;
-  const sql = "DELETE FROM gym WHERE id=?";
-  db.query(sql, [id], (err) => {
-    if (err) return res.status(500).json(err);
-    
-    logActivity({
-      userId: req.user.userId,
-      username: req.user.username,
-      action: `Deleted GYM record ID: ${id}`,
-      page: "GYM",
-      branch_id: req.user.branch_id,
-      ip: req.ip
-    });
+  
+  db.query("SELECT date FROM gym WHERE id=?", [id], (selErr, selRows) => {
+    const date = selRows && selRows.length > 0 ? selRows[0].date : "Unknown";
 
-    res.json({ message: "Gym record deleted successfully" });
+    const sql = "DELETE FROM gym WHERE id=?";
+    db.query(sql, [id], (err) => {
+      if (err) return res.status(500).json(err);
+      
+      auditLog(req, `Deleted Gym record for date: ${date}`);
+
+      res.json({ message: "Gym record deleted successfully" });
+    });
   });
 });
 
