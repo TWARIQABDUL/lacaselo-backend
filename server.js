@@ -21,6 +21,7 @@ const app = express();
 // CORS: Allow deployed frontend + localhost for development
 const FRONTEND_URLS = [
   "https://lacaselo-frontend-1.onrender.com",
+  "https://lacaselo-frontend-1-0crh.onrender.com/",
   "http://localhost:3000",
   "http://localhost:5000"
 ];
