@@ -44,7 +44,11 @@ router.post("/", (req, res) => {
     db.query("SELECT * FROM credits WHERE id=?", [result.insertId], (err2, rows) => {
       if (err2) return res.status(500).json({ error: "Failed to fetch new employee" });
       
-      auditLog(req, `Added Employee for credit: ${name} (Base Payment: ${payment})`);
+      auditLog(req, {
+        action_type: 'Add Employee',
+        product_name: name,
+        after_val: `Base Payment: ${payment}`
+      });
       res.json(rows[0]);
     });
   });
@@ -60,7 +64,10 @@ router.delete("/:id", (req, res) => {
     db.query("DELETE FROM credits WHERE id=?", [id], (err) => {
       if (err) return res.status(500).json({ error: "Failed to delete employee" });
       
-      auditLog(req, `Deleted Employee from credit list: ${name}`);
+      auditLog(req, {
+        action_type: 'Delete Employee',
+        product_name: name
+      });
       res.json({ message: "Employee deleted successfully" });
     });
   });
@@ -99,7 +106,11 @@ router.post("/:id/loans", verifyToken, allowRoles("BAR_MAN", "CHIEF_KITCHEN", "S
       // Also get employee name for the log
       db.query("SELECT name FROM credits WHERE id=?", [id], (err3, empRows) => {
         const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
-        auditLog(req, `Added Loan of ${numAmount} for Employee: ${empName}`);
+        auditLog(req, {
+          action_type: 'Add Loan',
+          product_name: empName,
+          after_val: `Amount: ${numAmount}`
+        });
         res.json(rows[0]);
       });
     });
@@ -119,7 +130,11 @@ router.delete("/:id/loans/:loanId", (req, res) => {
       db.query("DELETE FROM employee_loans WHERE id=?", [loanId], (err) => {
         if (err) return res.status(500).json({ error: "Failed to delete loan" });
         
-        auditLog(req, `Deleted Loan of ${amount} for Employee: ${empName}`);
+        auditLog(req, {
+          action_type: 'Delete Loan',
+          product_name: empName,
+          before_val: `Amount: ${amount}`
+        });
         res.json({ message: "Loan deleted successfully" });
       });
     });
@@ -163,7 +178,12 @@ router.put("/:id/loans/:loanId/pay", (req, res) => {
           
           db.query("SELECT name FROM credits WHERE id=?", [id], (err4, empRows) => {
             const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
-            auditLog(req, `Paid ${amount} towards Loan for Employee: ${empName}. Remaining: ${newRemaining}`);
+            auditLog(req, {
+              action_type: 'Pay Loan',
+              product_name: empName,
+              before_val: `Paid: ${amount}`,
+              after_val: `Remaining: ${newRemaining}`
+            });
             res.json(updatedRows[0]);
           });
         });

@@ -36,7 +36,11 @@ router.post("/", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req, re
       [username, password, role, branch_id || null]
     );
 
-    await auditLog(req, `Created new user: ${username} with role: ${role}`);
+    await auditLog(req, {
+      action_type: 'Create User',
+      product_name: username,
+      after_val: `Role: ${role}`
+    });
 
     res.json({
       message: "User created successfully",
@@ -91,7 +95,11 @@ router.put("/:id", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req, 
       if (password) changes.push(`Password was changed`);
       
       if (changes.length > 0) {
-        await auditLog(req, `Edited User ${old.username}: ${changes.join(', ')}`);
+        await auditLog(req, {
+          action_type: 'Edit User',
+          product_name: old.username,
+          after_val: changes.join(', ')
+        });
       }
     }
     
@@ -114,7 +122,10 @@ router.delete("/:id", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (re
 
     await db.promise().query("DELETE FROM users WHERE userId = ?", [id]);
     
-    await auditLog(req, `Deleted User: ${username}`);
+    await auditLog(req, {
+      action_type: 'Delete User',
+      product_name: username
+    });
     
     res.json({ message: "User deleted successfully" });
   } catch (error) {

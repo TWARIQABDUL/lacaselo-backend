@@ -176,7 +176,11 @@ router.post("/", (req, res) => {
         return res.status(500).json(err);
       }
 
-      auditLog(req, `Added new kitchen product: ${name} with Opening Stock: ${opening_stock || 0}`);
+      auditLog(req, {
+        action_type: 'Add Product',
+        product_name: name,
+        after_val: `Opening Stock: ${opening_stock || 0}`
+      });
 
       res.json({
         message: "Food added successfully",
@@ -216,7 +220,12 @@ router.put("/entree/:id", (req, res) => {
       }
       
       if (old && old.entree != entree) {
-        auditLog(req, `Updated Stock In for ${old.name}: ${old.entree} -> ${entree}`);
+        auditLog(req, {
+          action_type: 'Update Stock In',
+          product_name: old.name,
+          before_val: old.entree,
+          after_val: entree
+        });
       }
 
       res.json({ message: "Entree updated successfully" });
@@ -254,7 +263,12 @@ router.put("/sold/:id", (req, res) => {
       }
       
       if (old && old.sold != sold) {
-        auditLog(req, `Updated Sold for ${old.name}: ${old.sold} -> ${sold}`);
+        auditLog(req, {
+          action_type: 'Update Sold',
+          product_name: old.name,
+          before_val: old.sold,
+          after_val: sold
+        });
       }
 
       res.json({ message: "Sold updated successfully" });
@@ -303,7 +317,11 @@ router.put("/edit/:id", (req, res) => {
           if (old.price != price) changes.push(`Price: ${old.price} -> ${price}`);
           
           if (changes.length > 0) {
-            auditLog(req, `Edited ${old.name}: ${changes.join(', ')}`);
+            auditLog(req, {
+              action_type: 'Edit Product',
+              product_name: old.name,
+              after_val: changes.join(', ')
+            });
           }
         }
 
@@ -324,7 +342,10 @@ router.delete("/:id", (req, res) => {
     db.query("DELETE FROM kitchen_products WHERE id = ?", [id], (err) => {
       if (err) return res.status(500).json(err);
       
-      auditLog(req, `Deleted kitchen product: ${name}`);
+      auditLog(req, {
+        action_type: 'Delete Product',
+        product_name: name
+      });
       res.json({ message: "Product deleted successfully" });
     });
   });

@@ -49,7 +49,12 @@ router.put("/", (req, res) => {
         if (err) return res.status(500).json(err);
         
         if (oldVal !== setting_value) {
-          auditLog(req, `Updated Setting ${setting_key}: ${oldVal || 'None'} -> ${setting_value}`);
+          auditLog(req, {
+            action_type: 'Edit Setting',
+            product_name: setting_key,
+            before_val: oldVal || 'None',
+            after_val: setting_value
+          });
         }
         
         res.json({ message: "Setting updated", setting_key, setting_value });

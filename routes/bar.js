@@ -139,7 +139,11 @@ router.post("/", (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
 
-      auditLog(req, `Added new bar product: ${name} with Opening Stock: ${opening_stock || 0}`);
+      auditLog(req, { 
+        action_type: 'Add Product', 
+        product_name: name, 
+        after_val: `Opening Stock: ${opening_stock || 0}` 
+      });
 
       res.json({
         message: "Product added successfully",
@@ -172,7 +176,12 @@ router.put("/entree/:id", (req, res) => {
         if (err) return res.status(500).json(err);
         
         if (old && old.entree != entree) {
-          auditLog(req, `Updated Stock In for ${old.name}: ${old.entree} -> ${entree}`);
+          auditLog(req, { 
+            action_type: 'Update Stock In', 
+            product_name: old.name, 
+            before_val: old.entree, 
+            after_val: entree 
+          });
         }
         
         res.json({ message: "Entree updated successfully" });
@@ -204,7 +213,12 @@ router.put("/sold/:id", (req, res) => {
         if (err) return res.status(500).json(err);
         
         if (old && old.sold != sold) {
-          auditLog(req, `Updated Sold for ${old.name}: ${old.sold} -> ${sold}`);
+          auditLog(req, { 
+            action_type: 'Update Sold', 
+            product_name: old.name, 
+            before_val: old.sold, 
+            after_val: sold 
+          });
         }
         
         res.json({ message: "Sold updated successfully" });
@@ -244,7 +258,13 @@ router.put("/stock/:id", (req, res) => {
           let changes = [];
           if (old.entree != entree) changes.push(`Stock In: ${old.entree} -> ${entree}`);
           if (old.sold != sold) changes.push(`Sold: ${old.sold} -> ${sold}`);
-          if (changes.length > 0) auditLog(req, `Updated Stock for ${old.name}: ${changes.join(', ')}`);
+          if (changes.length > 0) {
+            auditLog(req, { 
+              action_type: 'Update Stock', 
+              product_name: old.name, 
+              after_val: changes.join(', ') 
+            });
+          }
         }
         
         res.json({ message: "Stock updated successfully" });
@@ -284,7 +304,13 @@ router.put("/price/:id", (req, res) => {
           let changes = [];
           if (old.initial_price != initial_price) changes.push(`Cost: ${old.initial_price} -> ${initial_price}`);
           if (old.price != price) changes.push(`Price: ${old.price} -> ${price}`);
-          if (changes.length > 0) auditLog(req, `Updated Prices for ${old.name}: ${changes.join(', ')}`);
+          if (changes.length > 0) {
+            auditLog(req, { 
+              action_type: 'Update Prices', 
+              product_name: old.name, 
+              after_val: changes.join(', ') 
+            });
+          }
         }
         
         res.json({ message: "Price updated successfully" });
@@ -333,7 +359,11 @@ router.put("/edit/:id", (req, res) => {
           if (old.price != price) changes.push(`Price: ${old.price} -> ${price}`);
           
           if (changes.length > 0) {
-            auditLog(req, `Edited bar product ${old.name}: ${changes.join(', ')}`);
+            auditLog(req, { 
+              action_type: 'Edit Product', 
+              product_name: old.name, 
+              after_val: changes.join(', ') 
+            });
           }
         }
 
@@ -354,7 +384,10 @@ router.delete("/:id", (req, res) => {
     db.query("DELETE FROM bar_products WHERE id = ?", [id], (err) => {
       if (err) return res.status(500).json(err);
       
-      auditLog(req, `Deleted bar product: ${name}`);
+      auditLog(req, { 
+        action_type: 'Delete Product', 
+        product_name: name 
+      });
       res.json({ message: "Product deleted successfully" });
     });
   });

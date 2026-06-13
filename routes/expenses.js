@@ -68,7 +68,11 @@ router.post("/", (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
 
-      auditLog(req, `Added new Expense: ${expense_name} (Amount: ${amount || 0})`);
+      auditLog(req, {
+        action_type: 'Add Expense',
+        product_name: expense_name,
+        after_val: `Amount: ${amount || 0}`
+      });
 
       // Return inserted row
       db.query(
@@ -117,7 +121,13 @@ router.put("/:id", (req, res) => {
           if (old.amount != amount) changes.push(`Amount: ${old.amount} -> ${amount}`);
           if (old.cost != cost) changes.push(`Cost: ${old.cost} -> ${cost}`);
           if (old.category !== category) changes.push(`Category: ${old.category} -> ${category}`);
-          if (changes.length > 0) auditLog(req, `Edited Expense ${old.expense_name}: ${changes.join(', ')}`);
+          if (changes.length > 0) {
+            auditLog(req, {
+              action_type: 'Edit Expense',
+              product_name: old.expense_name,
+              after_val: changes.join(', ')
+            });
+          }
         }
 
         res.json({ message: "Expense updated successfully" });
@@ -136,7 +146,10 @@ router.delete("/:id", (req, res) => {
     db.query("DELETE FROM expenses WHERE id=?", [id], (err) => {
       if (err) return res.status(500).json(err);
       
-      auditLog(req, `Deleted Expense: ${name}`);
+      auditLog(req, {
+        action_type: 'Delete Expense',
+        product_name: name
+      });
       res.json({ message: "Expense deleted successfully" });
     });
   });

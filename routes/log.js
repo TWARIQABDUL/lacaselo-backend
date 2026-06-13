@@ -21,9 +21,9 @@ router.get(
       }
 
       if (search) {
-        sql += " AND (action LIKE ? OR username LIKE ? OR page LIKE ?)";
+        sql += " AND (action_type LIKE ? OR product_name LIKE ? OR action LIKE ? OR username LIKE ? OR page LIKE ?)";
         const searchTerm = `%${search}%`;
-        params.push(searchTerm, searchTerm, searchTerm);
+        params.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
       }
 
       sql += " ORDER BY created_at DESC LIMIT 500";

@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 const db = require("../db");
 
-const auditLog = async (req, actionDescription) => {
+const auditLog = async (req, details) => {
   try {
     const authHeader = req.headers.authorization;
     let userId = 0;
@@ -34,9 +34,27 @@ const auditLog = async (req, actionDescription) => {
         }
     }
 
+    let actionStr = "";
+    let actionType = "-";
+    let productName = "-";
+    let beforeVal = null;
+    let afterVal = null;
+
+    if (typeof details === "string") {
+      actionStr = details;
+      actionType = details; // fallback
+    } else {
+      actionStr = details.action_type || "-";
+      actionType = details.action_type || "-";
+      productName = details.product_name || "-";
+      beforeVal = details.before_val !== undefined ? String(details.before_val) : null;
+      afterVal = details.after_val !== undefined ? String(details.after_val) : null;
+    }
+
     await db.promise().query(
-      `INSERT INTO activity_logs (user_id, username, action, page, branch_id, ip_address) VALUES (?, ?, ?, ?, ?, ?)`,
-      [userId, username, actionDescription, page, branchId, ipAddress]
+      `INSERT INTO activity_logs (user_id, username, action, page, branch_id, ip_address, product_name, action_type, before_val, after_val) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, username, actionStr, page, branchId, ipAddress, productName, actionType, beforeVal, afterVal]
     );
   } catch (error) {
     console.error("Audit Log Error:", error);

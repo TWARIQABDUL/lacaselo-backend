@@ -42,7 +42,11 @@ router.post("/", (req, res) => {
   db.query(sql, [date, daily_people, monthly_people, total_people, cash, cash_momo], (err, result) => {
     if (err) return res.status(500).json(err);
     
-    auditLog(req, `Added new Gym record for date: ${date}`);
+    auditLog(req, {
+      action_type: 'Add Record',
+      product_name: `Date: ${date}`,
+      after_val: `Income: ${income}`
+    });
     res.json({ message: "Gym record added", id: result.insertId });
   });
 });
@@ -78,7 +82,11 @@ router.put("/:id", (req, res) => {
         if (old.cash_momo != cash_momo) changes.push(`MoMo: ${old.cash_momo} -> ${cash_momo}`);
         
         if (changes.length > 0) {
-          auditLog(req, `Edited Gym record for ${old.date}: ${changes.join(', ')}`);
+          auditLog(req, {
+            action_type: 'Edit Record',
+            product_name: `Date: ${old.date}`,
+            after_val: changes.join(', ')
+          });
         }
       }
       res.json({ message: "Gym record updated successfully" });
@@ -101,7 +109,10 @@ router.delete("/:id", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), (req, res
     db.query(sql, [id], (err) => {
       if (err) return res.status(500).json(err);
       
-      auditLog(req, `Deleted Gym record for date: ${date}`);
+      auditLog(req, {
+        action_type: 'Delete Record',
+        product_name: `Date: ${date}`
+      });
 
       res.json({ message: "Gym record deleted successfully" });
     });

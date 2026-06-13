@@ -58,7 +58,11 @@ router.post("/", (req, res) => {
       (err, result) => {
         if (err) return res.status(500).json(err);
         
-        auditLog(req, `Added new Billiard record for date: ${date}`);
+        auditLog(req, {
+          action_type: 'Add Record',
+          product_name: `Date: ${date}`,
+          after_val: `Income: ${income}`
+        });
 
         db.query("SELECT * FROM billiard WHERE id = ?", [result.insertId], (err2, rows) => {
           if (err2) return res.status(500).json(err2);
@@ -93,7 +97,11 @@ router.put("/:id", (req, res) => {
           if (old.cash_momo != cash_momo) changes.push(`MoMo: ${old.cash_momo} -> ${cash_momo}`);
           
           if (changes.length > 0) {
-            auditLog(req, `Edited Billiard record for ${old.date}: ${changes.join(', ')}`);
+            auditLog(req, {
+              action_type: 'Edit Record',
+              product_name: `Date: ${old.date}`,
+              after_val: changes.join(', ')
+            });
           }
         }
 
@@ -119,7 +127,10 @@ router.delete("/:id", (req, res) => {
     db.query("DELETE FROM billiard WHERE id=?", [id], (err) => {
       if (err) return res.status(500).json(err);
       
-      auditLog(req, `Deleted Billiard record for date: ${date}`);
+      auditLog(req, {
+        action_type: 'Delete Record',
+        product_name: `Date: ${date}`
+      });
       res.json({ message: "Billiard record deleted successfully" });
     });
   });

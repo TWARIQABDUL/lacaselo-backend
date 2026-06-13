@@ -52,7 +52,11 @@ router.post("/", (req, res) => {
         return res.status(500).json(err);
       }
 
-      auditLog(req, `Added new Guesthouse record for date: ${date}`);
+      auditLog(req, {
+        action_type: 'Add Record',
+        product_name: `Date: ${date}`,
+        after_val: `Income: ${income}`
+      });
 
       res.json({
         message: "Guesthouse record added",
@@ -86,7 +90,11 @@ router.put("/:id", (req, res) => {
         if (fields.normal_price !== undefined && old.normal_price != fields.normal_price) changes.push(`Normal Price: ${old.normal_price} -> ${fields.normal_price}`);
         
         if (changes.length > 0) {
-          auditLog(req, `Edited Guesthouse record for ${old.date}: ${changes.join(', ')}`);
+          auditLog(req, {
+            action_type: 'Edit Record',
+            product_name: `Date: ${old.date}`,
+            after_val: changes.join(', ')
+          });
         }
       }
 
@@ -110,7 +118,10 @@ router.delete("/:id", (req, res) => {
         return res.status(500).json(err);
       }
       
-      auditLog(req, `Deleted Guesthouse record for date: ${date}`);
+      auditLog(req, {
+        action_type: 'Delete Record',
+        product_name: `Date: ${date}`
+      });
 
       res.json({ message: "Deleted successfully" });
     });

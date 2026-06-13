@@ -59,7 +59,10 @@ router.post("/login", async (req, res) => {
     // Log the login activity
     // Temporarily attach the token to the request so auditLogger can decode it
     req.headers.authorization = `Bearer ${token}`;
-    await auditLog(req, `User logged in: ${user.username}`);
+    await auditLog(req, {
+      action_type: 'Login',
+      product_name: user.username
+    });
     
     console.timeEnd("login_total");
   } catch (error) {
