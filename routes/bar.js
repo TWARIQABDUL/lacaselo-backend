@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 // =====================================================
 // HELPER FUNCTION – CALCULATE VALUES
@@ -138,6 +139,8 @@ router.post("/", (req, res) => {
     (err, result) => {
       if (err) return res.status(500).json(err);
 
+      auditLog(req, `Added new bar product: ${name} with Opening Stock: ${opening_stock || 0}`);
+
       res.json({
         message: "Product added successfully",
         id: result.insertId,
@@ -157,16 +160,25 @@ router.put("/entree/:id", (req, res) => {
     return res.status(400).json({ message: "Entree and date required" });
   }
 
-  db.query(
-    `UPDATE bar_products
-     SET entree = ?
-     WHERE id = ? AND date = ?`,
-    [Number(entree), id, date],
-    (err) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Entree updated successfully" });
-    }
-  );
+  db.query("SELECT name, entree FROM bar_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+    
+    db.query(
+      `UPDATE bar_products
+       SET entree = ?
+       WHERE id = ? AND date = ?`,
+      [Number(entree), id, date],
+      (err) => {
+        if (err) return res.status(500).json(err);
+        
+        if (old && old.entree != entree) {
+          auditLog(req, `Updated Stock In for ${old.name}: ${old.entree} -> ${entree}`);
+        }
+        
+        res.json({ message: "Entree updated successfully" });
+      }
+    );
+  });
 });
 
 // =====================================================
@@ -180,16 +192,25 @@ router.put("/sold/:id", (req, res) => {
     return res.status(400).json({ message: "Sold and date required" });
   }
 
-  db.query(
-    `UPDATE bar_products
-     SET sold = ?
-     WHERE id = ? AND date = ?`,
-    [Number(sold), id, date],
-    (err) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Sold updated successfully" });
-    }
-  );
+  db.query("SELECT name, sold FROM bar_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+
+    db.query(
+      `UPDATE bar_products
+       SET sold = ?
+       WHERE id = ? AND date = ?`,
+      [Number(sold), id, date],
+      (err) => {
+        if (err) return res.status(500).json(err);
+        
+        if (old && old.sold != sold) {
+          auditLog(req, `Updated Sold for ${old.name}: ${old.sold} -> ${sold}`);
+        }
+        
+        res.json({ message: "Sold updated successfully" });
+      }
+    );
+  });
 });
 
 // =====================================================
@@ -203,21 +224,33 @@ router.put("/stock/:id", (req, res) => {
     return res.status(400).json({ message: "Date required" });
   }
 
-  db.query(
-    `UPDATE bar_products
-     SET entree = ?, sold = ?
-     WHERE id = ? AND date = ?`,
-    [
-      Number(entree) || 0,
-      Number(sold) || 0,
-      id,
-      date,
-    ],
-    (err) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Stock updated successfully" });
-    }
-  );
+  db.query("SELECT name, entree, sold FROM bar_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+
+    db.query(
+      `UPDATE bar_products
+       SET entree = ?, sold = ?
+       WHERE id = ? AND date = ?`,
+      [
+        Number(entree) || 0,
+        Number(sold) || 0,
+        id,
+        date,
+      ],
+      (err) => {
+        if (err) return res.status(500).json(err);
+        
+        if (old) {
+          let changes = [];
+          if (old.entree != entree) changes.push(`Stock In: ${old.entree} -> ${entree}`);
+          if (old.sold != sold) changes.push(`Sold: ${old.sold} -> ${sold}`);
+          if (changes.length > 0) auditLog(req, `Updated Stock for ${old.name}: ${changes.join(', ')}`);
+        }
+        
+        res.json({ message: "Stock updated successfully" });
+      }
+    );
+  });
 });
 
 // =====================================================
@@ -231,21 +264,33 @@ router.put("/price/:id", (req, res) => {
     return res.status(400).json({ message: "Date required" });
   }
 
-  db.query(
-    `UPDATE bar_products
-     SET initial_price = ?, price = ?
-     WHERE id = ? AND date = ?`,
-    [
-      Number(initial_price) || 0,
-      Number(price) || 0,
-      id,
-      date,
-    ],
-    (err) => {
-      if (err) return res.status(500).json(err);
-      res.json({ message: "Price updated successfully" });
-    }
-  );
+  db.query("SELECT name, initial_price, price FROM bar_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+
+    db.query(
+      `UPDATE bar_products
+       SET initial_price = ?, price = ?
+       WHERE id = ? AND date = ?`,
+      [
+        Number(initial_price) || 0,
+        Number(price) || 0,
+        id,
+        date,
+      ],
+      (err) => {
+        if (err) return res.status(500).json(err);
+        
+        if (old) {
+          let changes = [];
+          if (old.initial_price != initial_price) changes.push(`Cost: ${old.initial_price} -> ${initial_price}`);
+          if (old.price != price) changes.push(`Price: ${old.price} -> ${price}`);
+          if (changes.length > 0) auditLog(req, `Updated Prices for ${old.name}: ${changes.join(', ')}`);
+        }
+        
+        res.json({ message: "Price updated successfully" });
+      }
+    );
+  });
 });
 
 // =====================================================
@@ -259,27 +304,43 @@ router.put("/edit/:id", (req, res) => {
     return res.status(400).json({ message: "Name and date required" });
   }
 
-  db.query(
-    `UPDATE bar_products
-     SET name = ?, 
-         initial_price = ?, 
-         price = ?, 
-         opening_stock = ?
-     WHERE id = ? AND date = ?`,
-    [
-      name,
-      Number(initial_price) || 0,
-      Number(price) || 0,
-      Number(opening_stock) || 0,
-      id,
-      date,
-    ],
-    (err) => {
-      if (err) return res.status(500).json(err);
+  db.query("SELECT * FROM bar_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
 
-      res.json({ message: "Product updated successfully" });
-    }
-  );
+    db.query(
+      `UPDATE bar_products
+       SET name = ?, 
+           initial_price = ?, 
+           price = ?, 
+           opening_stock = ?
+       WHERE id = ? AND date = ?`,
+      [
+        name,
+        Number(initial_price) || 0,
+        Number(price) || 0,
+        Number(opening_stock) || 0,
+        id,
+        date,
+      ],
+      (err) => {
+        if (err) return res.status(500).json(err);
+
+        if (old) {
+          let changes = [];
+          if (old.name !== name) changes.push(`Name: ${old.name} -> ${name}`);
+          if (old.opening_stock != opening_stock) changes.push(`Opening Stock: ${old.opening_stock} -> ${opening_stock}`);
+          if (old.initial_price != initial_price) changes.push(`Cost: ${old.initial_price} -> ${initial_price}`);
+          if (old.price != price) changes.push(`Price: ${old.price} -> ${price}`);
+          
+          if (changes.length > 0) {
+            auditLog(req, `Edited bar product ${old.name}: ${changes.join(', ')}`);
+          }
+        }
+
+        res.json({ message: "Product updated successfully" });
+      }
+    );
+  });
 });
 
 // =====================================================
@@ -287,9 +348,15 @@ router.put("/edit/:id", (req, res) => {
 // =====================================================
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
-  db.query("DELETE FROM bar_products WHERE id = ?", [id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Product deleted successfully" });
+  db.query("SELECT name FROM bar_products WHERE id = ?", [id], (selErr, selRows) => {
+    const name = selRows && selRows.length > 0 ? selRows[0].name : "Unknown";
+    
+    db.query("DELETE FROM bar_products WHERE id = ?", [id], (err) => {
+      if (err) return res.status(500).json(err);
+      
+      auditLog(req, `Deleted bar product: ${name}`);
+      res.json({ message: "Product deleted successfully" });
+    });
   });
 });
 
