@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
+const auditLog = require("../utils/auditLogger");
 
 
 // ==================================================
@@ -175,6 +176,8 @@ router.post("/", (req, res) => {
         return res.status(500).json(err);
       }
 
+      auditLog(req, `Added new kitchen product: ${name} with Opening Stock: ${opening_stock || 0}`);
+
       res.json({
         message: "Food added successfully",
         id: result.insertId,
@@ -203,13 +206,21 @@ router.put("/entree/:id", (req, res) => {
     WHERE id = ? AND date = ?
   `;
 
-  db.query(sql, [Number(entree), id, date], (err) => {
-    if (err) {
-      console.error("Entree update error:", err);
-      return res.status(500).json(err);
-    }
+  db.query("SELECT name, entree FROM kitchen_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+    
+    db.query(sql, [Number(entree), id, date], (err) => {
+      if (err) {
+        console.error("Entree update error:", err);
+        return res.status(500).json(err);
+      }
+      
+      if (old && old.entree != entree) {
+        auditLog(req, `Updated Stock In for ${old.name}: ${old.entree} -> ${entree}`);
+      }
 
-    res.json({ message: "Entree updated successfully" });
+      res.json({ message: "Entree updated successfully" });
+    });
   });
 });
 
@@ -233,12 +244,21 @@ router.put("/sold/:id", (req, res) => {
     WHERE id = ? AND date = ?
   `;
 
-  db.query(sql, [Number(sold), id, date], (err) => {
-    if (err) {
-      console.error("Sold update error:", err);
-      return res.status(500).json(err);
-    }
-    res.json({ message: "Sold updated successfully" });
+  db.query("SELECT name, sold FROM kitchen_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
+
+    db.query(sql, [Number(sold), id, date], (err) => {
+      if (err) {
+        console.error("Sold update error:", err);
+        return res.status(500).json(err);
+      }
+      
+      if (old && old.sold != sold) {
+        auditLog(req, `Updated Sold for ${old.name}: ${old.sold} -> ${sold}`);
+      }
+
+      res.json({ message: "Sold updated successfully" });
+    });
   });
 });
 
@@ -254,27 +274,43 @@ router.put("/edit/:id", (req, res) => {
     return res.status(400).json({ message: "Name and date required" });
   }
 
-  db.query(
-    `UPDATE kitchen_products
-     SET name = ?, 
-         initial_price = ?, 
-         price = ?, 
-         opening_stock = ?
-     WHERE id = ? AND date = ?`,
-    [
-      name,
-      Number(initial_price) || 0,
-      Number(price) || 0,
-      Number(opening_stock) || 0,
-      id,
-      date,
-    ],
-    (err) => {
-      if (err) return res.status(500).json(err);
+  db.query("SELECT * FROM kitchen_products WHERE id = ? AND date = ?", [id, date], (selErr, selRows) => {
+    const old = selRows && selRows.length > 0 ? selRows[0] : null;
 
-      res.json({ message: "Product updated successfully" });
-    }
-  );
+    db.query(
+      `UPDATE kitchen_products
+       SET name = ?, 
+           initial_price = ?, 
+           price = ?, 
+           opening_stock = ?
+       WHERE id = ? AND date = ?`,
+      [
+        name,
+        Number(initial_price) || 0,
+        Number(price) || 0,
+        Number(opening_stock) || 0,
+        id,
+        date,
+      ],
+      (err) => {
+        if (err) return res.status(500).json(err);
+
+        if (old) {
+          let changes = [];
+          if (old.name !== name) changes.push(`Name: ${old.name} -> ${name}`);
+          if (old.opening_stock != opening_stock) changes.push(`Opening Stock: ${old.opening_stock} -> ${opening_stock}`);
+          if (old.initial_price != initial_price) changes.push(`Cost: ${old.initial_price} -> ${initial_price}`);
+          if (old.price != price) changes.push(`Price: ${old.price} -> ${price}`);
+          
+          if (changes.length > 0) {
+            auditLog(req, `Edited ${old.name}: ${changes.join(', ')}`);
+          }
+        }
+
+        res.json({ message: "Product updated successfully" });
+      }
+    );
+  });
 });
 
 // =====================================================
@@ -282,9 +318,15 @@ router.put("/edit/:id", (req, res) => {
 // =====================================================
 router.delete("/:id", (req, res) => {
   const { id } = req.params;
-  db.query("DELETE FROM kitchen_products WHERE id = ?", [id], (err) => {
-    if (err) return res.status(500).json(err);
-    res.json({ message: "Product deleted successfully" });
+  db.query("SELECT name FROM kitchen_products WHERE id = ?", [id], (selErr, selRows) => {
+    const name = selRows && selRows.length > 0 ? selRows[0].name : "Unknown";
+    
+    db.query("DELETE FROM kitchen_products WHERE id = ?", [id], (err) => {
+      if (err) return res.status(500).json(err);
+      
+      auditLog(req, `Deleted kitchen product: ${name}`);
+      res.json({ message: "Product deleted successfully" });
+    });
   });
 });
 

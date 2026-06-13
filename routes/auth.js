@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const jwt = require("jsonwebtoken");
+const auditLog = require("../utils/auditLogger");
 
 router.post("/login", async (req, res) => {
   try {
@@ -36,6 +37,7 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign(
       {
         id: user.userId,
+        username: user.username,
         role: user.role,
         branch: user.branch_id,
       },
@@ -53,6 +55,12 @@ router.post("/login", async (req, res) => {
         branch: user.branch_id,
       },
     });
+    
+    // Log the login activity
+    // Temporarily attach the token to the request so auditLogger can decode it
+    req.headers.authorization = `Bearer ${token}`;
+    await auditLog(req, `User logged in: ${user.username}`);
+    
     console.timeEnd("login_total");
   } catch (error) {
     console.error("❌ Login Error:", error.message);
