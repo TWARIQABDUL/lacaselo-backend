@@ -5,7 +5,7 @@ const verifyToken = require("../middleware/AuthMiddlewares");
 const allowRoles = require("../middleware/roleMiddleware");
 const auditLog = require("../utils/auditLogger");
 
-// ===== GET ALL EMPLOYEES W/ LOANS =====
+// ===== GET ALL EMPLOYEES W/ LOANS AND PENALTIES =====
 router.get("/", (req, res) => {
   const sql = `
     SELECT 
@@ -13,11 +13,10 @@ router.get("/", (req, res) => {
       c.name, 
       c.payment, 
       c.created_at,
-      IFNULL(SUM(l.amount), 0) AS total_loan,
-      IFNULL(SUM(l.remaining), 0) AS total_remaining
+      (SELECT IFNULL(SUM(amount), 0) FROM employee_loans WHERE employee_id = c.id) AS total_loan,
+      (SELECT IFNULL(SUM(remaining), 0) FROM employee_loans WHERE employee_id = c.id) AS total_remaining,
+      (SELECT IFNULL(SUM(amount), 0) FROM employee_penalties WHERE employee_id = c.id) AS total_penalty
     FROM credits c
-    LEFT JOIN employee_loans l ON c.id = l.employee_id
-    GROUP BY c.id
     ORDER BY c.id DESC
   `;
   db.query(sql, (err, rows) => {
@@ -189,6 +188,73 @@ router.put("/:id/loans/:loanId/pay", (req, res) => {
         });
       }
     );
+  });
+});
+// ===== GET EMPLOYEE PENALTIES =====
+router.get("/:id/penalties", (req, res) => {
+  const { id } = req.params;
+  const sql = "SELECT * FROM employee_penalties WHERE employee_id=? ORDER BY id DESC";
+  db.query(sql, [id], (err, rows) => {
+    if (err) return res.status(500).json({ error: "Failed to fetch penalties" });
+    res.json(rows);
+  });
+});
+
+// ===== ADD EMPLOYEE PENALTY (Admin Only) =====
+router.post("/:id/penalties", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), (req, res) => {
+  const { id } = req.params;
+  const { amount, reason, penalty_date } = req.body;
+
+  if (!amount || isNaN(Number(amount))) return res.status(400).json({ error: "Valid amount is required" });
+
+  const numAmount = Number(amount);
+  const givenBy = req.user?.username || req.body.given_by || "unknown";
+  const sql = "INSERT INTO employee_penalties (employee_id, amount, reason, penalty_date, given_by) VALUES (?, ?, ?, ?, ?)";
+  
+  db.query(sql, [id, numAmount, reason || "", penalty_date, givenBy], (err, result) => {
+    if (err) {
+      console.error("PENALTY INSERT ERROR:", err);
+      return res.status(500).json({ error: "Failed to add penalty", details: err.message });
+    }
+
+    db.query("SELECT * FROM employee_penalties WHERE id=?", [result.insertId], (err2, rows) => {
+      if (err2) return res.status(500).json({ error: "Failed to fetch new penalty" });
+      
+      // Also get employee name for the log
+      db.query("SELECT name FROM credits WHERE id=?", [id], (err3, empRows) => {
+        const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
+        auditLog(req, {
+          action_type: 'Add Penalty',
+          product_name: empName,
+          after_val: `Amount: ${numAmount}`
+        });
+        res.json(rows[0]);
+      });
+    });
+  });
+});
+
+// ===== DELETE EMPLOYEE PENALTY (Admin Only) =====
+router.delete("/:id/penalties/:penaltyId", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), (req, res) => {
+  const { id, penaltyId } = req.params;
+  
+  db.query("SELECT amount FROM employee_penalties WHERE id=?", [penaltyId], (selErr, selRows) => {
+    const amount = selRows && selRows.length > 0 ? selRows[0].amount : 0;
+    
+    db.query("SELECT name FROM credits WHERE id=?", [id], (err3, empRows) => {
+      const empName = empRows && empRows.length > 0 ? empRows[0].name : "Unknown";
+      
+      db.query("DELETE FROM employee_penalties WHERE id=?", [penaltyId], (err) => {
+        if (err) return res.status(500).json({ error: "Failed to delete penalty" });
+        
+        auditLog(req, {
+          action_type: 'Delete Penalty',
+          product_name: empName,
+          before_val: `Amount: ${amount}`
+        });
+        res.json({ message: "Penalty deleted successfully" });
+      });
+    });
   });
 });
 

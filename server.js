@@ -69,14 +69,27 @@ app.get("/api/migrate-db", async (req, res) => {
       ADD COLUMN action_type VARCHAR(255) DEFAULT '-',
       ADD COLUMN before_val TEXT DEFAULT NULL,
       ADD COLUMN after_val TEXT DEFAULT NULL;
+    `).catch(e => {
+      if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+    });
+
+    await db.promise().query(`
+      CREATE TABLE IF NOT EXISTS employee_penalties (
+        id INT NOT NULL AUTO_INCREMENT,
+        employee_id INT NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        reason TEXT,
+        penalty_date DATE NOT NULL,
+        given_by VARCHAR(255) DEFAULT 'unknown',
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+        is_locked TINYINT DEFAULT '0',
+        PRIMARY KEY (id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
-    res.send("<h2>✅ Migration successful! The database schema has been updated.</h2><p>You can close this tab and go test the app!</p>");
+
+    res.send("<h2>✅ Migration successful! The database schema has been updated with employee_penalties.</h2><p>You can close this tab and go test the app!</p>");
   } catch(e) {
-    if (e.code === 'ER_DUP_FIELDNAME') {
-      res.send("<h2>✅ Columns already exist! The database is already primed.</h2><p>You can close this tab and go test the app!</p>");
-    } else {
-      res.status(500).send("<h2>❌ Error: " + e.message + "</h2>");
-    }
+    res.status(500).send("<h2>❌ Error: " + e.message + "</h2>");
   }
 });
 
