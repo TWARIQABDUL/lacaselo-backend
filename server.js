@@ -14,6 +14,7 @@ const authRoutes = require("./routes/auth");
 const logRoutes = require("./routes/log");
 const usersRoutes = require("./routes/users");
 const settingsRoutes = require("./routes/settings");
+const commentsRoutes = require("./routes/comments");
 
 const app = express();
 
@@ -53,6 +54,7 @@ app.use("/api", authRoutes);
 app.use("/api", logRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/comments", commentsRoutes);
 
 // ================= DEFAULT ROUTE =================
 app.get("/", (req, res) => {
@@ -87,7 +89,21 @@ app.get("/api/migrate-db", async (req, res) => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    res.send("<h2>✅ Migration successful! The database schema has been updated with employee_penalties.</h2><p>You can close this tab and go test the app!</p>");
+    await db.promise().query(`
+      CREATE TABLE IF NOT EXISTS closing_comments (
+        id INT NOT NULL AUTO_INCREMENT,
+        date DATE NOT NULL,
+        department VARCHAR(50) NOT NULL,
+        user_id INT NOT NULL,
+        username VARCHAR(255),
+        comment TEXT NOT NULL,
+        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY date_dept (date, department)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    res.send("<h2>✅ Migration successful! The database schema has been updated.</h2><p>You can close this tab and go test the app!</p>");
   } catch(e) {
     res.status(500).send("<h2>❌ Error: " + e.message + "</h2>");
   }
