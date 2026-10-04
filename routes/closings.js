@@ -93,6 +93,18 @@ router.get("/", verifyToken, async (req, res) => {
     await ensureTable();
     const [rows] = await db.promise().query("SELECT * FROM closings WHERE date = ? AND department = ?", [date, COMBINED]);
 
+    // Closings saved before sales snapshots existed (or with 0) get their value
+    // computed once from the system and stored, so the record is fixed from then on
+    for (const r of rows) {
+      if (!Number(r.system_sales)) {
+        const sales = await getSystemSales(date);
+        if (sales.total > 0) {
+          await db.promise().query("UPDATE closings SET system_sales = ? WHERE id = ?", [sales.total, r.id]);
+          r.system_sales = sales.total;
+        }
+      }
+    }
+
     // Staff must not see what admin recorded as received
     if (!isAdminRole(req.user.role)) {
       rows.forEach((r) => {
