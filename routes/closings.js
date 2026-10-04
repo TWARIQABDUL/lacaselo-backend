@@ -22,7 +22,6 @@ const ensureTable = () => {
           username VARCHAR(255),
           momo_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
           cash_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
-          system_sales DECIMAL(14,2) NOT NULL DEFAULT 0,
           received_amount DECIMAL(14,2) DEFAULT NULL,
           received_by VARCHAR(255) DEFAULT NULL,
           received_at TIMESTAMP NULL DEFAULT NULL,
@@ -39,29 +38,62 @@ const ensureTable = () => {
   return tableReady;
 };
 
+// One combined closing per day, submitted by the bar man for all departments
+const COMBINED = "all";
+const SUBMIT_ROLES = ["BAR_MAN", "MANAGER"];
+
+// Sold value recorded in the system for a date (departments not on the system count as 0)
+const getSystemSales = async (date) => {
+  const q = async (sql, params) => {
+    try {
+      const [rows] = await db.promise().query(sql, params);
+      return Number(rows[0]?.total) || 0;
+    } catch (e) {
+      console.error("Closing sales query failed:", e.message);
+      return 0;
+    }
+  };
+
+  let tokenPrice = 500;
+  try {
+    const [t] = await db.promise().query("SELECT setting_value FROM settings WHERE setting_key = 'token_price'");
+    if (t.length > 0) tokenPrice = Number(t[0].setting_value) || 500;
+  } catch (e) {}
+
+  const breakdown = {
+    bar: await q("SELECT SUM(sold * price) AS total FROM bar_products WHERE date = ?", [date]),
+    kitchen: await q("SELECT SUM(sold * price) AS total FROM kitchen_products WHERE date = ?", [date]),
+    billiard: await q("SELECT SUM((token * ?) + cash + cash_momo) AS total FROM billiard WHERE date = ?", [tokenPrice, date]),
+    gym: await q("SELECT SUM(cash + cash_momo) AS total FROM gym WHERE date = ?", [date]),
+    guesthouse: await q("SELECT SUM((vip * vip_price) + (normal * normal_price)) AS total FROM guesthouse WHERE date = ?", [date]),
+  };
+  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
+  return { total, breakdown };
+};
+
 const validAmount = (v) => v !== "" && v !== null && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0;
 
 // =====================================================
-// GET CLOSINGS FOR A DATE (optionally one department)
+// GET THE COMBINED CLOSING FOR A DATE
 // =====================================================
 router.get("/", verifyToken, async (req, res) => {
-  const { date, department } = req.query;
+  const { date } = req.query;
   if (!date) return res.status(400).json({ message: "Date is required" });
 
   try {
     await ensureTable();
-    let query = "SELECT * FROM closings WHERE date = ?";
-    const params = [date];
-    if (department) {
-      query += " AND department = ?";
-      params.push(department);
-    }
-    query += " ORDER BY department";
+    const [rows] = await db.promise().query("SELECT * FROM closings WHERE date = ? AND department = ?", [date, COMBINED]);
 
-    const [rows] = await db.promise().query(query, params);
-
-    // Staff must not see what admin recorded as received
-    if (!isAdminRole(req.user.role)) {
+    if (isAdminRole(req.user.role)) {
+      if (rows.length > 0) {
+        const sales = await getSystemSales(date);
+        rows.forEach((r) => {
+          r.system_sales = sales.total;
+          r.sales_breakdown = sales.breakdown;
+        });
+      }
+    } else {
+      // Staff only see what was submitted: no system sales, no admin received amount
       rows.forEach((r) => {
         delete r.received_amount;
         delete r.received_by;
@@ -76,41 +108,33 @@ router.get("/", verifyToken, async (req, res) => {
 });
 
 // =====================================================
-// SUBMIT A CLOSING (ONE PER DATE+DEPARTMENT, IMMUTABLE)
+// SUBMIT THE DAY'S COMBINED CLOSING (ONE PER DATE, IMMUTABLE)
 // =====================================================
-router.post("/", verifyToken, async (req, res) => {
-  const { date, department, momo_amount, cash_amount, system_sales } = req.body;
+router.post("/", verifyToken, allowRoles(...SUBMIT_ROLES), async (req, res) => {
+  const { date, momo_amount, cash_amount } = req.body;
 
-  if (!date || !department || !validAmount(momo_amount) || !validAmount(cash_amount)) {
-    return res.status(400).json({ message: "Date, department, code amount and cash amount are required" });
+  if (!date || !validAmount(momo_amount) || !validAmount(cash_amount)) {
+    return res.status(400).json({ message: "Date, code amount and cash amount are required" });
   }
 
   try {
     await ensureTable();
     const [result] = await db.promise().query(
-      `INSERT INTO closings (date, department, user_id, username, momo_amount, cash_amount, system_sales)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
-        date,
-        department,
-        req.user.userId,
-        req.user.username,
-        Number(momo_amount),
-        Number(cash_amount),
-        validAmount(system_sales) ? Number(system_sales) : 0,
-      ]
+      `INSERT INTO closings (date, department, user_id, username, momo_amount, cash_amount)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [date, COMBINED, req.user.userId, req.user.username, Number(momo_amount), Number(cash_amount)]
     );
 
     auditLog(req, {
       action_type: "Submit Closing",
-      product_name: department,
-      after_val: `date: ${date}, code: ${momo_amount}, cash: ${cash_amount}, sales: ${system_sales}`,
+      product_name: "all departments",
+      after_val: `date: ${date}, code: ${momo_amount}, cash: ${cash_amount}`,
     });
 
     res.json({ message: "Closing submitted successfully", id: result.insertId });
   } catch (err) {
     if (err.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "A closing was already submitted for this date and department" });
+      return res.status(409).json({ message: "A closing was already submitted for this date" });
     }
     console.error("Submit closing error:", err);
     res.status(500).json({ message: "Failed to submit closing" });
