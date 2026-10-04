@@ -22,6 +22,7 @@ const ensureTable = () => {
           username VARCHAR(255),
           momo_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
           cash_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+          system_sales DECIMAL(14,2) NOT NULL DEFAULT 0,
           received_amount DECIMAL(14,2) DEFAULT NULL,
           received_by VARCHAR(255) DEFAULT NULL,
           received_at TIMESTAMP NULL DEFAULT NULL,
@@ -29,6 +30,14 @@ const ensureTable = () => {
           PRIMARY KEY (id),
           UNIQUE KEY closing_date_dept (date, department)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+      )
+      .then(() =>
+        db
+          .promise()
+          .query("ALTER TABLE closings ADD COLUMN system_sales DECIMAL(14,2) NOT NULL DEFAULT 0")
+          .catch((e) => {
+            if (e.code !== "ER_DUP_FIELDNAME") throw e;
+          })
       )
       .catch((err) => {
         tableReady = null; // retry on next request
@@ -84,16 +93,8 @@ router.get("/", verifyToken, async (req, res) => {
     await ensureTable();
     const [rows] = await db.promise().query("SELECT * FROM closings WHERE date = ? AND department = ?", [date, COMBINED]);
 
-    if (isAdminRole(req.user.role)) {
-      if (rows.length > 0) {
-        const sales = await getSystemSales(date);
-        rows.forEach((r) => {
-          r.system_sales = sales.total;
-          r.sales_breakdown = sales.breakdown;
-        });
-      }
-    } else {
-      // Staff only see what was submitted: no system sales, no admin received amount
+    // Staff must not see what admin recorded as received
+    if (!isAdminRole(req.user.role)) {
       rows.forEach((r) => {
         delete r.received_amount;
         delete r.received_by;
@@ -104,6 +105,21 @@ router.get("/", verifyToken, async (req, res) => {
   } catch (err) {
     console.error("Get closings error:", err);
     res.status(500).json({ message: "Failed to load closings" });
+  }
+});
+
+// =====================================================
+// PREVIEW: SYSTEM SOLD VALUE FOR A DATE (for live checking before submit)
+// =====================================================
+router.get("/preview", verifyToken, allowRoles(...SUBMIT_ROLES, "SUPER_ADMIN", "ADMIN"), async (req, res) => {
+  const { date } = req.query;
+  if (!date) return res.status(400).json({ message: "Date is required" });
+  try {
+    const sales = await getSystemSales(date);
+    res.json({ system_sales: sales.total });
+  } catch (err) {
+    console.error("Closing preview error:", err);
+    res.status(500).json({ message: "Failed to calculate system sales" });
   }
 });
 
@@ -119,16 +135,17 @@ router.post("/", verifyToken, allowRoles(...SUBMIT_ROLES), async (req, res) => {
 
   try {
     await ensureTable();
+    const sales = await getSystemSales(date);
     const [result] = await db.promise().query(
-      `INSERT INTO closings (date, department, user_id, username, momo_amount, cash_amount)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [date, COMBINED, req.user.userId, req.user.username, Number(momo_amount), Number(cash_amount)]
+      `INSERT INTO closings (date, department, user_id, username, momo_amount, cash_amount, system_sales)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [date, COMBINED, req.user.userId, req.user.username, Number(momo_amount), Number(cash_amount), sales.total]
     );
 
     auditLog(req, {
       action_type: "Submit Closing",
       product_name: "all departments",
-      after_val: `date: ${date}, code: ${momo_amount}, cash: ${cash_amount}`,
+      after_val: `date: ${date}, sales: ${sales.total}, code: ${momo_amount}, cash: ${cash_amount}`,
     });
 
     res.json({ message: "Closing submitted successfully", id: result.insertId });
