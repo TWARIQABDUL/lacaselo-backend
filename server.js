@@ -15,6 +15,7 @@ const logRoutes = require("./routes/log");
 const usersRoutes = require("./routes/users");
 const settingsRoutes = require("./routes/settings");
 const commentsRoutes = require("./routes/comments");
+const closingsRoutes = require("./routes/closings");
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use("/api", logRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/comments", commentsRoutes);
+app.use("/api/closings", closingsRoutes);
 
 // ================= DEFAULT ROUTE =================
 app.get("/", (req, res) => {
