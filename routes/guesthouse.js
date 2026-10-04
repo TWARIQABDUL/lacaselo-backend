@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const auditLog = require("../utils/auditLogger");
+const verifyToken = require("../middleware/AuthMiddlewares");
+const allowRoles = require("../middleware/roleMiddleware");
 
 // ================= GET BY DATE =================
 router.get("/", (req, res) => {
@@ -24,12 +26,16 @@ router.get("/", (req, res) => {
 });
 
 // ================= INSERT =================
-router.post("/", (req, res) => {
+router.post("/", verifyToken, allowRoles("SUPER_ADMIN"), (req, res) => {
   const { date, vip, normal, vip_price, normal_price } = req.body;
 
   if (!date) {
     return res.status(400).json({ message: "Ntamakuru ahari y' izi tariki" });
   }
+
+  const income =
+    (Number(vip) || 0) * (Number(vip_price) || 0) +
+    (Number(normal) || 0) * (Number(normal_price) || 0);
 
   const sql = `
     INSERT INTO guesthouse 
