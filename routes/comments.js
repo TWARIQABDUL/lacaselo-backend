@@ -47,6 +47,11 @@ router.post("/", verifyToken, (req, res) => {
       if (err) return res.status(500).json(err);
 
       if (rows.length > 0) {
+        // A saved comment is final for staff; only admins can change it
+        if (!["SUPER_ADMIN", "ADMIN"].includes(user.role)) {
+          return res.status(409).json({ message: "This comment was already saved and cannot be edited." });
+        }
+
         // Update existing comment
         const oldComment = rows[0].comment;
         db.query(
