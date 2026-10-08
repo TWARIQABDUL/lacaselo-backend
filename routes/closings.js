@@ -51,7 +51,8 @@ const ensureTable = () => {
 const COMBINED = "all";
 const SUBMIT_ROLES = ["BAR_MAN", "MANAGER"];
 
-// Sold value recorded in the system for a date (departments not on the system count as 0)
+// Stock value for a date: bar + kitchen sold value only
+// (billiard, gym and guesthouse are deliberately excluded from the closing check)
 const getSystemSales = async (date) => {
   const q = async (sql, params) => {
     try {
@@ -63,20 +64,11 @@ const getSystemSales = async (date) => {
     }
   };
 
-  let tokenPrice = 500;
-  try {
-    const [t] = await db.promise().query("SELECT setting_value FROM settings WHERE setting_key = 'token_price'");
-    if (t.length > 0) tokenPrice = Number(t[0].setting_value) || 500;
-  } catch (e) {}
-
   const breakdown = {
     bar: await q("SELECT SUM(sold * price) AS total FROM bar_products WHERE date = ?", [date]),
     kitchen: await q("SELECT SUM(sold * price) AS total FROM kitchen_products WHERE date = ?", [date]),
-    billiard: await q("SELECT SUM((token * ?) + cash + cash_momo) AS total FROM billiard WHERE date = ?", [tokenPrice, date]),
-    gym: await q("SELECT SUM(cash + cash_momo) AS total FROM gym WHERE date = ?", [date]),
-    guesthouse: await q("SELECT SUM((vip * vip_price) + (normal * normal_price)) AS total FROM guesthouse WHERE date = ?", [date]),
   };
-  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
+  const total = breakdown.bar + breakdown.kitchen;
   return { total, breakdown };
 };
 
