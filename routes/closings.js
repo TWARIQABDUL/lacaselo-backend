@@ -54,12 +54,14 @@ const SUBMIT_ROLES = ["BAR_MAN", "MANAGER"];
 // Stock value for a date: bar + kitchen sold value only
 // (billiard, gym and guesthouse are deliberately excluded from the closing check)
 const getSystemSales = async (date) => {
+  let failed = false;
   const q = async (sql, params) => {
     try {
       const [rows] = await db.promise().query(sql, params);
       return Number(rows[0]?.total) || 0;
     } catch (e) {
       console.error("Closing sales query failed:", e.message);
+      failed = true;
       return 0;
     }
   };
@@ -69,7 +71,7 @@ const getSystemSales = async (date) => {
     kitchen: await q("SELECT SUM(sold * price) AS total FROM kitchen_products WHERE date = ?", [date]),
   };
   const total = breakdown.bar + breakdown.kitchen;
-  return { total, breakdown };
+  return { total, breakdown, failed };
 };
 
 const validAmount = (v) => v !== "" && v !== null && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0;
@@ -85,14 +87,16 @@ router.get("/", verifyToken, async (req, res) => {
     await ensureTable();
     const [rows] = await db.promise().query("SELECT * FROM closings WHERE date = ? AND department = ?", [date, COMBINED]);
 
-    // Closings saved before sales snapshots existed (or with 0) get their value
-    // computed once from the system and stored, so the record is fixed from then on
-    for (const r of rows) {
-      if (!Number(r.system_sales)) {
-        const sales = await getSystemSales(date);
-        if (sales.total > 0) {
-          await db.promise().query("UPDATE closings SET system_sales = ? WHERE id = ?", [sales.total, r.id]);
-          r.system_sales = sales.total;
+    // Keep each closing's stock value in line with the current rule (bar + kitchen).
+    // If the calculation fails, the stored value is left untouched.
+    if (rows.length > 0) {
+      const sales = await getSystemSales(date);
+      if (!sales.failed) {
+        for (const r of rows) {
+          if (Number(r.system_sales) !== sales.total) {
+            await db.promise().query("UPDATE closings SET system_sales = ? WHERE id = ?", [sales.total, r.id]);
+            r.system_sales = sales.total;
+          }
         }
       }
     }
@@ -120,6 +124,7 @@ router.get("/preview", verifyToken, allowRoles(...SUBMIT_ROLES, "SUPER_ADMIN", "
   if (!date) return res.status(400).json({ message: "Date is required" });
   try {
     const sales = await getSystemSales(date);
+    if (sales.failed) return res.status(500).json({ message: "Failed to calculate system sales" });
     res.json({ system_sales: sales.total });
   } catch (err) {
     console.error("Closing preview error:", err);
@@ -140,6 +145,9 @@ router.post("/", verifyToken, allowRoles(...SUBMIT_ROLES), async (req, res) => {
   try {
     await ensureTable();
     const sales = await getSystemSales(date);
+    if (sales.failed) {
+      return res.status(500).json({ message: "Could not calculate the system stock value, please try again" });
+    }
     const [result] = await db.promise().query(
       `INSERT INTO closings (date, department, user_id, username, momo_amount, cash_amount, system_sales)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
