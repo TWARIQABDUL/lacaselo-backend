@@ -50,6 +50,8 @@ const ensureTable = () => {
 // One combined closing per day, submitted by the bar man for all departments
 const COMBINED = "all";
 const SUBMIT_ROLES = ["BAR_MAN", "MANAGER"];
+// Past dates still open for submitting a closing (locked again once submitted)
+const UNLOCKED_DATES = ["2026-10-01", "2026-10-02", "2026-10-03"];
 
 // Stock value for a date: bar + kitchen sold value only
 // (billiard, gym and guesthouse are deliberately excluded from the closing check)
@@ -140,6 +142,11 @@ router.post("/", verifyToken, allowRoles(...SUBMIT_ROLES), async (req, res) => {
 
   if (!date || !validAmount(momo_amount) || !validAmount(cash_amount)) {
     return res.status(400).json({ message: "Date, code amount and cash amount are required" });
+  }
+
+  const todayStr = new Date().toISOString().split("T")[0];
+  if (date < todayStr && !UNLOCKED_DATES.includes(date)) {
+    return res.status(403).json({ message: "Closings cannot be submitted for past dates." });
   }
 
   try {
