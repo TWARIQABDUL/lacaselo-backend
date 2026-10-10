@@ -4,6 +4,9 @@ const db = require("../db");
 const verifyToken = require("../middleware/AuthMiddlewares");
 const auditLog = require("../utils/auditLogger");
 
+// Past dates staff may still add a (first) comment for. A saved comment is locked again.
+const UNLOCKED_DATES = ["2026-10-01", "2026-10-02", "2026-10-03"];
+
 // =====================================================
 // GET ALL COMMENTS OR BY DEPARTMENT FOR A DATE
 // =====================================================
@@ -71,6 +74,13 @@ router.post("/", verifyToken, (req, res) => {
           }
         );
       } else {
+        // Staff cannot add comments for past dates, except the unlocked ones
+        const todayStr = new Date().toISOString().split("T")[0];
+        const isAdmin = ["SUPER_ADMIN", "ADMIN"].includes(user.role);
+        if (!isAdmin && date < todayStr && !UNLOCKED_DATES.includes(date)) {
+          return res.status(403).json({ message: "Comments cannot be added for past dates." });
+        }
+
         // Insert new comment
         db.query(
           "INSERT INTO closing_comments (date, department, user_id, username, comment) VALUES (?, ?, ?, ?, ?)",
