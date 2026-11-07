@@ -119,6 +119,100 @@ router.get("/", verifyToken, async (req, res) => {
 });
 
 // =====================================================
+// ADMIN: FULL MONTH LIST (closings + comments per day)
+// =====================================================
+router.get("/month", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req, res) => {
+  const { month } = req.query; // YYYY-MM
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month || "")) {
+    return res.status(400).json({ message: "Month is required as YYYY-MM" });
+  }
+
+  const start = `${month}-01`;
+  const [y, m] = month.split("-").map(Number);
+  const end = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+
+  try {
+    await ensureTable();
+    const pool = db.promise();
+
+    const [closings] = await pool.query(
+      `SELECT id, DATE_FORMAT(date, '%Y-%m-%d') AS date, username, momo_amount, cash_amount,
+              system_sales, received_amount, received_by
+         FROM closings WHERE department = ? AND date BETWEEN ? AND ? ORDER BY date`,
+      [COMBINED, start, end]
+    );
+
+    const [comments] = await pool.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS date, department, username, comment, created_at
+         FROM closing_comments WHERE date BETWEEN ? AND ? ORDER BY date, department`,
+      [start, end]
+    );
+
+    // Current bar + kitchen sold value per day (same rule as the closing check)
+    const salesByDate = {};
+    let salesOk = true;
+    for (const table of ["bar_products", "kitchen_products"]) {
+      try {
+        const [rows] = await pool.query(
+          `SELECT DATE_FORMAT(date, '%Y-%m-%d') AS d, SUM(sold * price) AS total
+             FROM ${table} WHERE date BETWEEN ? AND ? GROUP BY date`,
+          [start, end]
+        );
+        rows.forEach((r) => {
+          salesByDate[r.d] = (salesByDate[r.d] || 0) + (Number(r.total) || 0);
+        });
+      } catch (e) {
+        console.error("Month sales query failed:", e.message);
+        salesOk = false;
+      }
+    }
+
+    const days = {};
+    const day = (d) => (days[d] = days[d] || { date: d, closing: null, comments: [] });
+
+    closings.forEach((c) => {
+      const systemSales = salesOk ? salesByDate[c.date] || 0 : Number(c.system_sales) || 0;
+      const momo = Number(c.momo_amount) || 0;
+      const cash = Number(c.cash_amount) || 0;
+      const received = c.received_amount === null ? null : Number(c.received_amount);
+      day(c.date).closing = {
+        id: c.id,
+        username: c.username,
+        system_sales: systemSales,
+        momo_amount: momo,
+        cash_amount: cash,
+        received_amount: received,
+        received_by: c.received_by,
+        sales_gap: systemSales - (momo + cash), // > 0 missing, < 0 extra
+        cash_gap: received === null ? null : cash - received, // > 0 missing at admin
+      };
+    });
+    comments.forEach((c) => day(c.date).comments.push(c));
+
+    const list = Object.values(days).sort((a, b) => (a.date < b.date ? -1 : 1));
+
+    const totals = { days_closed: 0, system_sales: 0, momo_amount: 0, cash_amount: 0, received_amount: 0, sales_gap: 0, cash_gap: 0 };
+    list.forEach((d) => {
+      if (!d.closing) return;
+      totals.days_closed += 1;
+      totals.system_sales += d.closing.system_sales;
+      totals.momo_amount += d.closing.momo_amount;
+      totals.cash_amount += d.closing.cash_amount;
+      totals.sales_gap += d.closing.sales_gap;
+      if (d.closing.received_amount !== null) {
+        totals.received_amount += d.closing.received_amount;
+        totals.cash_gap += d.closing.cash_gap;
+      }
+    });
+
+    res.json({ month, days: list, totals });
+  } catch (err) {
+    console.error("Month closings error:", err);
+    res.status(500).json({ message: "Failed to load monthly closings" });
+  }
+});
+
+// =====================================================
 // PREVIEW: SYSTEM SOLD VALUE FOR A DATE (for live checking before submit)
 // =====================================================
 router.get("/preview", verifyToken, allowRoles(...SUBMIT_ROLES, "SUPER_ADMIN", "ADMIN"), async (req, res) => {
