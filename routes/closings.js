@@ -191,7 +191,7 @@ router.get("/month", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req
 
     const list = Object.values(days).sort((a, b) => (a.date < b.date ? -1 : 1));
 
-    const totals = { days_closed: 0, system_sales: 0, momo_amount: 0, cash_amount: 0, received_amount: 0, sales_gap: 0, cash_gap: 0 };
+    const totals = { days_closed: 0, system_sales: 0, momo_amount: 0, cash_amount: 0, received_amount: 0, sales_gap: 0, cash_gap: null };
     list.forEach((d) => {
       if (!d.closing) return;
       totals.days_closed += 1;
@@ -201,7 +201,7 @@ router.get("/month", verifyToken, allowRoles("SUPER_ADMIN", "ADMIN"), async (req
       totals.sales_gap += d.closing.sales_gap;
       if (d.closing.received_amount !== null) {
         totals.received_amount += d.closing.received_amount;
-        totals.cash_gap += d.closing.cash_gap;
+        totals.cash_gap = (totals.cash_gap || 0) + d.closing.cash_gap; // stays null until something is received
       }
     });
 
